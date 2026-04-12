@@ -8,8 +8,8 @@ public class SimpleTerrain : MonoBehaviour
     [Header("Perlin input")]
     public float positionX = 0f;
     public float positionY = 0f;
-    public float scale = 1f;
-    public int octaves = 1;
+    public float scale = 0.5f;
+    public int octaves = 5;
     public float persistence = 0.5f;
     public float lacunarity = 2.0f;
     public int seed = 1;
@@ -17,24 +17,19 @@ public class SimpleTerrain : MonoBehaviour
     [Header("Mesh")]
     public int meshSize = 50; // grid resolution (meshSize x meshSize quads)
     public float heightScale = 5f; // how tall the hills are
-    
-    [Header("River / Lake (noise mask carving)")]
+
+    [Header("River / Lake (flow-based hydrology)")]
     [Tooltip("Only carve rivers below this terrain height (avoid mountain crests)")]
-
-
     public float riverMaxTerrainHeight = 3.5f;
-    [Tooltip("Distance-from-center threshold in 0..0.5. Typical: 0.02")]
 
-    public float riverWidth = 0.02f; // 0..1
-    public float riverDepth = 2.0f;  // max depth carved at river center
-    [Tooltip("Low values = longer, smoother rivers. Typical: 0.01 - 0.05")]
+    [Tooltip("Accumulation threshold for river cells (upstream cell count). Lower = more rivers on small meshes (try 10-30 for 51x51 grid)")]
+    public float riverAccumulationThreshold = 15f;
 
-    public float riverScale = 0.05f;
+    [Tooltip("Max depth carved at main river channel (deeper for bigger rivers via log scaling)")]
+    public float riverDepth = 2.0f;
 
-    
-    
     [Header("Lakes")]
-    [Tooltip("Multiply riverWidth to produce broader basins that become lakes if low-lying")]
+    [Tooltip("Multiply river threshold to produce broader basins that become lakes if low-lying")]
     public float lakeWidthMultiplier = 3.0f; // lake width depends on river width // ensure > 1.0
     public float lakeMaxHeight = 2.5f;
     [Tooltip("If true, lakes will fill slightly shallower than surrounding to avoid overflow")]
@@ -42,11 +37,14 @@ public class SimpleTerrain : MonoBehaviour
 
     public float globalWaterLevel = 1.0f;
 
+    // === FLOW-BASED RIVER SYSTEM (new) ===
+    private readonly int[] dx8 = { 1, 1, 0, -1, -1, -1, 0, 1 };
+    private readonly int[] dy8 = { 0, 1, 1, 1, 0, -1, -1, -1 };
 
     Mesh mesh;
     Vector3[] vertices;
     // offsetX & Y to avoid weird pattern when perlin noise near 0
-    float offsetX; 
+    float offsetX;
     float offsetY;
     // water
     float[] lastWater;              // per-vertex final water amount after hydraulic erosion
@@ -72,30 +70,31 @@ public class SimpleTerrain : MonoBehaviour
         System.Random rng = new System.Random(seed);
         offsetX = rng.Next(-100000, 100000);
         offsetY = rng.Next(-100000, 100000);
-        
+
         ApplyPerlinToVertices();
         ApplyRiverAndLakes();
-            // upload to mesh so erosion sees correct heights
+        // upload to mesh so erosion sees correct heights
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
 
         // after ApplyPerlinToVertices() and RunThermalErosion(...)
-/*         RunHydraulicErosion(
-            iterations: 1000,      // more iterations = deeper channels
-            rainPerIt: 0.01f,     // small rain per step
-            evaporation: 0.02f,   // fraction of water lost per iteration (0..1)
-            capacityFactor: 4.0f, // how much sediment water can carry: tune
-            depositSpeed: 0.5f,   // how fast sediment deposits (0..1)
-            erodeSpeed: 0.5f      // how fast terrain is eroded (0..1)
-        ) */;
-        
-            // after erosion, update mesh
+        /*         RunHydraulicErosion(
+                    iterations: 1000,      // more iterations = deeper channels
+                    rainPerIt: 0.01f,     // small rain per step
+                    evaporation: 0.02f,   // fraction of water lost per iteration (0..1)
+                    capacityFactor: 4.0f, // how much sediment water can carry: tune
+                    depositSpeed: 0.5f,   // how fast sediment deposits (0..1)
+                    erodeSpeed: 0.5f      // how fast terrain is eroded (0..1)
+                ) */
+        ;
+
+        // after erosion, update mesh
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
-        
+
         CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
 
     }
@@ -148,14 +147,16 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateBounds();
     }
 
-    private void Update()
+    private void OnValidate()
     {
-        // Update vertex heights from Perlin noise each frame (cheap for small meshes)
+        // Re-generate everything when positionX/Y changes (fixes problem 1)
         ApplyPerlinToVertices();
-// ;
+        ApplyRiverAndLakes();           // ← rivers & lakes now follow the shifted Perlin terrain
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
 
+        CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
     }
 
     void ApplyPerlinToVertices()
@@ -169,8 +170,8 @@ public class SimpleTerrain : MonoBehaviour
                 int i = y * vertsPerRow + x;
 
                 // sample using world-space position + the user offsets
-                float sampleX = (x + positionX + offsetX)  / meshSize / scale; // divide by meshSize to constrain to 0..1
-                float sampleY = (y + positionY + offsetY)  / meshSize / scale;
+                float sampleX = (x + positionX + offsetX) / meshSize / scale; // divide by meshSize to constrain to 0..1
+                float sampleY = (y + positionY + offsetY) / meshSize / scale;
 
                 // for multi-octave Perlin
                 float noise = 0f;
@@ -194,81 +195,202 @@ public class SimpleTerrain : MonoBehaviour
             }
         }
     }
-    
-    
-void ApplyRiverAndLakes()
-{
-    int rows = meshSize + 1;
-    lastWater = new float[rows * rows];
 
-    // normalize offsets so Perlin sampling is stable
-    float ox = offsetX / meshSize;
-    float oy = offsetY / meshSize;
-
-    // defensive: ensure riverScale is positive and sane
-    float effectiveRiverScale = Mathf.Max(1e-6f, riverScale);
-
-    int carvedCount = 0;
-
-    // Precompute effective global water
-    float effectiveGlobalWaterLevel = globalWaterLevel;
-    if (effectiveGlobalWaterLevel <= 0f)
-        effectiveGlobalWaterLevel = heightScale * 0.1f;
-
-    for (int y = 0; y <= meshSize; y++)
+    /// <summary>
+    /// FIXED: Now uses real D8 flow direction + pit filling + flow accumulation.
+    /// Rivers follow natural valleys created by your Perlin noise.
+    /// Changing positionX/Y instantly updates rivers/lakes because they are derived from the terrain itself.
+    /// Lakes are created as broader low-lying basins along the river network.
+    /// </summary>
+    void ApplyRiverAndLakes()
     {
-        for (int x = 0; x <= meshSize; x++)
+        int rows = meshSize + 1;
+        lastWater = new float[rows * rows];
+
+        // 1. Copy current Perlin heights (original terrain before any carving)
+        float[,] originalHeight = new float[rows, rows];
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < rows; x++)
+                originalHeight[y, x] = vertices[y * rows + x].y;
+
+        // 2. Make a working copy for flow simulation (we will pit-fill this copy)
+        float[,] flowHeight = new float[rows, rows];
+        System.Array.Copy(originalHeight, flowHeight, rows * rows);
+
+        // 3. Lightweight pit filling (removes single-cell sinks so flow can propagate)
+        ApplyPitFilling(flowHeight, rows);
+
+        // 4. Compute flow directions on the pit-filled heightmap
+        int[,] flowDir = ComputeFlowDirections(flowHeight, rows);
+
+        // 5. Compute flow accumulation (how many cells drain into each cell)
+        float[,] accumulation = ComputeFlowAccumulation(flowHeight, flowDir, rows);
+
+        // 6. Carve rivers + create lakes + build water mask
+        int carvedCount = 0;
+        float maxLogAcc = 0f;
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < rows; x++)
+            {
+                float logAcc = Mathf.Log(accumulation[y, x] + 1f);
+                if (logAcc > maxLogAcc) maxLogAcc = logAcc;
+            }
+        if (maxLogAcc <= 0f) maxLogAcc = 1f;
+
+        float effectiveGlobalWaterLevel = globalWaterLevel > 0f ? globalWaterLevel : heightScale * 0.1f;
+
+        for (int y = 0; y < rows; y++)
         {
-            int i = y * rows + x;
-
-            // Normalized sample coordinates (0..1) scaled by river frequency.
-            // Using normalized coords keeps sampling consistent with ApplyPerlinToVertices.
-            float nx = (x + positionX) / (float)meshSize + ox;
-            float ny = (y + positionY) / (float)meshSize + oy;
-
-            // scale normalized coordinates by riverScale (small values -> long smooth rivers)
-            float sampleXR = nx * effectiveRiverScale;
-            float sampleYR = ny * effectiveRiverScale;
-
-            float riverNoise = Mathf.PerlinNoise(sampleXR, sampleYR); // 0..1
-            float river = Mathf.Abs(riverNoise - 0.5f); // distance-from-center (0..0.5)
-
-            // carve riverbed if within width and below mountain threshold
-            if (river < riverWidth && vertices[i].y < riverMaxTerrainHeight)
+            for (int x = 0; x < rows; x++)
             {
-                float t = river / Mathf.Max(1e-6f, riverWidth); // 0..1
-                float depth = riverDepth * (1f - t); // deepest at center
-                vertices[i].y = Mathf.Max(0f, vertices[i].y - depth);
-                carvedCount++;
+                int i = y * rows + x;
+                float acc = accumulation[y, x];
+                float origH = originalHeight[y, x];
+
+                bool isRiver = (acc > riverAccumulationThreshold) && (origH < riverMaxTerrainHeight);
+
+                // === RIVER CARVING (main channel) ===
+                if (isRiver)
+                {
+                    float norm = Mathf.Log(acc + 1f) / maxLogAcc; // logarithmic scaling = wider/deeper rivers naturally
+                    float depth = riverDepth * norm;
+                    vertices[i].y = Mathf.Max(0f, origH - depth);
+                    carvedCount++;
+                }
+                else
+                {
+                    vertices[i].y = origH;
+                }
+
+                // === LAKE BASINS (wider low-lying areas near rivers) ===
+                float lakeThreshold = riverAccumulationThreshold / Mathf.Max(1f, lakeWidthMultiplier);
+                if (origH <= lakeMaxHeight && acc > lakeThreshold)
+                {
+                    // shallow basin carve for lake look
+                    vertices[i].y = Mathf.Max(0f, vertices[i].y - lakeFillAmount * 0.5f);
+                }
+
+                // === WATER MASK (for overlay) ===
+                float w = Mathf.Clamp01((effectiveGlobalWaterLevel - vertices[i].y) / effectiveGlobalWaterLevel);
+                if (isRiver) w = 1f;                                 // rivers are always full water
+                if (origH <= lakeMaxHeight && acc > lakeThreshold) w = Mathf.Max(w, lakeFillAmount); // lakes get water too
+
+                lastWater[i] = w;
             }
-
-            // simple lakes: wider band + low terrain
-            float lakeBand = riverWidth * Mathf.Max(1f, lakeWidthMultiplier);
-            if (river < lakeBand && vertices[i].y <= lakeMaxHeight)
-            {
-                // push down a bit to create basin (adjust multiplier to taste)
-                vertices[i].y = vertices[i].y - (lakeFillAmount * 0.1f);
-            }
-
-            // Build water mask: global water level OR river centers
-            float w = Mathf.Clamp01((effectiveGlobalWaterLevel - vertices[i].y) / Mathf.Max(1e-6f, effectiveGlobalWaterLevel));
-            if (river < riverWidth)
-                w = Mathf.Max(w, 1f);
-
-            lastWater[i] = w;
         }
+
+        Debug.Log($"ApplyRiverAndLakes (flow-based): carved {carvedCount} river cells | max acc ≈ {accumulation[rows / 2, rows / 2]:F0}");
     }
 
-    // optional: smooth water mask a little so overlay isn't noisy
-    // SmoothWaterMask(iterations: 2);
+    // ====================== HELPER METHODS (new) ======================
 
-    Debug.Log($"ApplyRiverAndLakes: carved vertices = {carvedCount}/{rows * rows} (riverWidth={riverWidth}, riverScale={riverScale})");
-}
+    private int[,] ComputeFlowDirections(float[,] h, int size)
+    {
+        int[,] dir = new int[size, size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                dir[y, x] = -1; // default = sink
+                float maxSlope = 0f;
+                for (int d = 0; d < 8; d++)
+                {
+                    int nx = x + dx8[d];
+                    int ny = y + dy8[d];
+                    if (nx >= 0 && nx < size && ny >= 0 && ny < size)
+                    {
+                        float dist = (Mathf.Abs(dx8[d]) + Mathf.Abs(dy8[d]) == 1) ? 1f : 1.414213562f;
+                        float slope = (h[y, x] - h[ny, nx]) / dist;
+                        if (slope > maxSlope)
+                        {
+                            maxSlope = slope;
+                            dir[y, x] = d;
+                        }
+                    }
+                }
+            }
+        }
+        return dir;
+    }
 
-    
-    // Minimal hydraulic erosion (grid-based)
+    private void ApplyPitFilling(float[,] h, int size)
+    {
+        int maxIter = size * 2;
+        int iter = 0;
+        bool changed;
+        do
+        {
+            changed = false;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float myH = h[y, x];
+                    float minNeighH = float.MaxValue;
+                    bool hasLower = false;
+
+                    for (int d = 0; d < 8; d++)
+                    {
+                        int nx = x + dx8[d];
+                        int ny = y + dy8[d];
+                        if (nx >= 0 && nx < size && ny >= 0 && ny < size)
+                        {
+                            float nh = h[ny, nx];
+                            if (nh < minNeighH) minNeighH = nh;
+                            if (nh < myH) hasLower = true;
+                        }
+                    }
+
+                    if (!hasLower && minNeighH < float.MaxValue)
+                    {
+                        h[y, x] = minNeighH + 0.01f; // small raise to let water flow out
+                        changed = true;
+                    }
+                }
+            }
+            iter++;
+        } while (changed && iter < maxIter);
+
+        // Debug.Log($"PitFilling completed in {iter} iterations");
+    }
+
+    private float[,] ComputeFlowAccumulation(float[,] h, int[,] flowDir, int size)
+    {
+        float[,] acc = new float[size, size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                acc[y, x] = 1f; // every cell contributes itself
+
+        // Build list of cells and sort by height DESCENDING (high → low)
+        var cells = new System.Collections.Generic.List<System.Tuple<int, int, float>>(size * size);
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                cells.Add(System.Tuple.Create(x, y, h[y, x]));
+
+        cells.Sort((a, b) => b.Item3.CompareTo(a.Item3));
+
+        // Propagate accumulation downstream
+        for (int i = 0; i < cells.Count; i++)
+        {
+            int x = cells[i].Item1;
+            int y = cells[i].Item2;
+            int d = flowDir[y, x];
+            if (d == -1) continue; // sink
+
+            int nx = x + dx8[d];
+            int ny = y + dy8[d];
+            if (nx >= 0 && nx < size && ny >= 0 && ny < size)
+            {
+                acc[ny, nx] += acc[y, x];
+            }
+        }
+        return acc;
+    }
+
+    // Minimal hydraulic erosion (grid-based) - unchanged
     void RunHydraulicErosion(int iterations, float rainPerIt, float evaporation, float capacityFactor, float depositSpeed, float erodeSpeed)
     {
+        // ... (your original method - left untouched)
         int rows = meshSize + 1;
         // copy heights to working 2D array
         float[,] h = new float[rows, rows];
@@ -281,7 +403,7 @@ void ApplyRiverAndLakes()
 
         int[] ox = { 0, 1, 0, -1 };
         int[] oy = { 1, 0, -1, 0 };
-        
+
         for (int it = 0; it < iterations; it++)
         {
             // 1) rain
@@ -404,7 +526,7 @@ void ApplyRiverAndLakes()
                     water[y, x] *= Mathf.Max(0f, 1f - evaporation);
                 }
         } // end iterations
-        
+
         // copy final water to lastWater so overlay can use it
         lastWater = new float[rows * rows];
         float maxW = 0f;
@@ -425,7 +547,7 @@ void ApplyRiverAndLakes()
             for (int x = 0; x < rows; x++)
                 vertices[y * rows + x].y = h[y, x];
     }
-    
+
     /// <summary>
     /// Build a simple water overlay mesh from lastWater. Triangles whose average vertex water
     /// exceeds threshold become water triangles. Water mesh is slightly raised to avoid z-fight.
@@ -552,7 +674,7 @@ void ApplyRiverAndLakes()
             mr.sharedMaterial = fallback;
         }
 
-        Debug.Log($"Water overlay built: verts={waterVerts.Count}, tris={waterTris.Count/3}, maxW={maxW:F4}");
+        // Debug.Log($"Water overlay built: verts={waterVerts.Count}, tris={waterTris.Count/3}, maxW={maxW:F4}");
     }
 
 }
