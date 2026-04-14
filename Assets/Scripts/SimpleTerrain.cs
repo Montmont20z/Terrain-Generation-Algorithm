@@ -1,5 +1,3 @@
-using System;
-using Unity.VisualScripting;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -9,21 +7,21 @@ public class SimpleTerrain : MonoBehaviour
     public float positionX = 0f;
     public float positionY = 0f;
     public float scale = 0.5f;
-    public int octaves = 5;
+    public int octaves = 8;
     public float persistence = 0.5f;
     public float lacunarity = 2.0f;
     public int seed = 1;
 
     [Header("Mesh")]
-    public int meshSize = 50; // grid resolution (meshSize x meshSize quads)
-    public float heightScale = 5f; // how tall the hills are
+    public int meshSize = 250; // grid resolution (meshSize x meshSize quads)
+    public float heightScale = 50f; // how tall the hills are
 
     [Header("River / Lake (flow-based hydrology)")]
     [Tooltip("Only carve rivers below this terrain height (avoid mountain crests)")]
-    public float riverMaxTerrainHeight = 3.5f;
+    public float riverMaxTerrainHeight = 30.0f;
 
     [Tooltip("Accumulation threshold for river cells (upstream cell count). Lower = more rivers on small meshes (try 10-30 for 51x51 grid)")]
-    public float riverAccumulationThreshold = 15f;
+    public float riverAccumulationThreshold = 50f;
 
     [Tooltip("Max depth carved at main river channel (deeper for bigger rivers via log scaling)")]
     public float riverDepth = 2.0f;
@@ -37,7 +35,7 @@ public class SimpleTerrain : MonoBehaviour
 
     public float globalWaterLevel = 1.0f;
 
-    // === FLOW-BASED RIVER SYSTEM (new) ===
+    // === FLOW-BASED RIVER SYSTEM===
     private readonly int[] dx8 = { 1, 1, 0, -1, -1, -1, 0, 1 };
     private readonly int[] dy8 = { 0, 1, 1, 1, 0, -1, -1, -1 };
 
@@ -78,17 +76,6 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-
-        // after ApplyPerlinToVertices() and RunThermalErosion(...)
-        /*         RunHydraulicErosion(
-                    iterations: 1000,      // more iterations = deeper channels
-                    rainPerIt: 0.01f,     // small rain per step
-                    evaporation: 0.02f,   // fraction of water lost per iteration (0..1)
-                    capacityFactor: 4.0f, // how much sediment water can carry: tune
-                    depositSpeed: 0.5f,   // how fast sediment deposits (0..1)
-                    erodeSpeed: 0.5f      // how fast terrain is eroded (0..1)
-                ) */
-        ;
 
         // after erosion, update mesh
         mesh.vertices = vertices;
@@ -157,6 +144,8 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateBounds();
 
         CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
+        
+        // RunHydraulicErosion(5, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f);
     }
 
     void ApplyPerlinToVertices()
@@ -182,6 +171,7 @@ public class SimpleTerrain : MonoBehaviour
                 for (int o = 0; o < Mathf.Max(1, octaves); o++)
                 {
                     float v = Mathf.PerlinNoise(sampleX * frequency, sampleY * frequency) * 2f - 1f; // now -1..1
+                    // float v = Mathf.PerlinNoise((sampleX + Mathf.PerlinNoise(sampleX,sampleY)) * frequency, (y + Mathf.PerlinNoise(sampleX,sampleY)) * frequency) * 2f - 1f;
                     noise += v * amplitude;
 
                     maxAmplitude += amplitude;
@@ -197,7 +187,7 @@ public class SimpleTerrain : MonoBehaviour
     }
 
     /// <summary>
-    /// FIXED: Now uses real D8 flow direction + pit filling + flow accumulation.
+    /// D8 flow direction + pit filling + flow accumulation.
     /// Rivers follow natural valleys created by your Perlin noise.
     /// Changing positionX/Y instantly updates rivers/lakes because they are derived from the terrain itself.
     /// Lakes are created as broader low-lying basins along the river network.
@@ -278,6 +268,20 @@ public class SimpleTerrain : MonoBehaviour
                 lastWater[i] = w;
             }
         }
+        
+        // After setting lastWater in ApplyRiverAndLakes, blur/dilate it
+        float[] dilated = new float[lastWater.Length];
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < rows; x++) {
+                float max = lastWater[y * rows + x];
+                for (int d = 0; d < 8; d++) {
+                    int nx2 = x + dx8[d], ny2 = y + dy8[d];
+                    if (nx2 >= 0 && nx2 < rows && ny2 >= 0 && ny2 < rows)
+                        max = Mathf.Max(max, lastWater[ny2 * rows + nx2]);
+                }
+                dilated[y * rows + x] = max;
+            }
+        lastWater = dilated;
 
         Debug.Log($"ApplyRiverAndLakes (flow-based): carved {carvedCount} river cells | max acc ≈ {accumulation[rows / 2, rows / 2]:F0}");
     }
