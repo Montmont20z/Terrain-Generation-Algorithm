@@ -38,6 +38,11 @@ public class SimpleTerrain : MonoBehaviour
     // === FLOW-BASED RIVER SYSTEM===
     private readonly int[] dx8 = { 1, 1, 0, -1, -1, -1, 0, 1 };
     private readonly int[] dy8 = { 0, 1, 1, 1, 0, -1, -1, -1 };
+    private bool _terrainDirty = false;
+
+    // cache the last values that affect river topology
+    private float _lastScale, _lastHeightScale, _lastPersistence, _lastLacunarity;
+    private int _lastOctaves, _lastSeed;
 
     Mesh mesh;
     Vector3[] vertices;
@@ -46,7 +51,10 @@ public class SimpleTerrain : MonoBehaviour
     float offsetY;
     // water
     float[] lastWater;              // per-vertex final water amount after hydraulic erosion
-    GameObject waterObject;         // child object for water mesh
+    private Mesh _waterMesh;
+    private GameObject _waterObject;
+    private Material _waterMat;
+
 
 
     private void Start()
@@ -82,8 +90,71 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
 
-        CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
+        RebuildWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
 
+    }
+    
+    private void OnValidate()
+    {
+        _terrainDirty = true;
+    }
+
+    private void Update()
+    {
+        if (_terrainDirty)
+        {
+            _terrainDirty = false;
+            RebuildTerrain();
+        }
+    }
+
+    void RebuildTerrain()
+    {
+        if (mesh == null) return;
+        // Re-generate everything when positionX/Y changes
+        ApplyPerlinToVertices();
+        
+        if (isRiverParamsDirty())
+        {
+            ApplyRiverAndLakes();           // ← rivers & lakes now follow the shifted Perlin terrain
+            CacheRiverParams();
+            RebuildWaterOverlay();
+            // CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
+        }
+        mesh.vertices = vertices;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+
+        // RunHydraulicErosion(5, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f);
+    }
+    
+    [ContextMenu("Rebuild All Terrain")]
+    void RebuildAllTerrain()
+    {
+        if (mesh == null) return;
+        // Re-generate everything when positionX/Y changes
+        ApplyPerlinToVertices();
+        
+        ApplyRiverAndLakes();           // ← rivers & lakes now follow the shifted Perlin terrain
+        RebuildWaterOverlay();
+        // CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
+        mesh.vertices = vertices;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+    }
+    
+    private bool isRiverParamsDirty()
+    {
+        return scale != _lastScale || heightScale != _lastHeightScale ||
+               persistence != _lastPersistence || lacunarity != _lastLacunarity ||
+               octaves != _lastOctaves || seed != _lastSeed;
+    }
+    
+    private void CacheRiverParams()
+    {
+        _lastScale = scale; _lastHeightScale = heightScale;
+        _lastPersistence = persistence; _lastLacunarity = lacunarity;
+        _lastOctaves = octaves; _lastSeed = seed;
     }
 
     private void CreateGridMesh()
@@ -133,21 +204,7 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
     }
-
-    private void OnValidate()
-    {
-        // Re-generate everything when positionX/Y changes (fixes problem 1)
-        ApplyPerlinToVertices();
-        ApplyRiverAndLakes();           // ← rivers & lakes now follow the shifted Perlin terrain
-        mesh.vertices = vertices;
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
-
-        CreateWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
-        
-        // RunHydraulicErosion(5, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f);
-    }
-
+    
     void ApplyPerlinToVertices()
     {
         int vertsPerRow = meshSize + 1;
@@ -392,6 +449,88 @@ public class SimpleTerrain : MonoBehaviour
     }
 
     // Minimal hydraulic erosion (grid-based) - unchanged
+
+    /// <summary>
+    /// Build a simple water overlay mesh from lastWater. Triangles whose average vertex water
+    /// exceeds threshold become water triangles. Water mesh is slightly raised to avoid z-fight.
+    /// </summary>
+    public void RebuildWaterOverlay(float threshold = 0.02f, float raise = 0.02f, Color? color = null)
+    {
+        if (lastWater == null || lastWater.Length == 0) return;
+
+        Color waterColor = color ?? new Color(0f, 0.45f, 0.85f, 0.6f);
+
+        // --- One-time setup ---
+        if (_waterObject == null)
+        {
+            _waterObject = new GameObject("WaterOverlay");
+            _waterObject.transform.SetParent(transform, false);
+
+            _waterMesh = new Mesh { name = "WaterOverlay" };
+            _waterObject.AddComponent<MeshFilter>().sharedMesh = _waterMesh;
+
+            var mr = _waterObject.AddComponent<MeshRenderer>();
+            _waterMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            mr.sharedMaterial = _waterMat;
+        }
+
+        // Update material color
+        if (_waterMat.HasProperty("_BaseColor")) _waterMat.SetColor("_BaseColor", waterColor);
+        else if (_waterMat.HasProperty("_Color"))  _waterMat.SetColor("_Color",     waterColor);
+
+        // --- Rebuild mesh data ---
+        float maxW = 0f;
+        for (int i = 0; i < lastWater.Length; i++)
+            if (lastWater[i] > maxW) maxW = lastWater[i];
+        if (maxW <= 0f) { _waterMesh.Clear(); return; }
+
+        int rows = meshSize + 1;
+        var indexMap  = new System.Collections.Generic.Dictionary<int, int>(rows * rows);
+        var waterVerts = new System.Collections.Generic.List<Vector3>();
+        var waterTris  = new System.Collections.Generic.List<int>();
+
+        int GetOrCreate(int origIdx)
+        {
+            if (indexMap.TryGetValue(origIdx, out int mapped)) return mapped;
+            int newIndex = waterVerts.Count;
+            waterVerts.Add(vertices[origIdx] + Vector3.up * raise);
+            indexMap[origIdx] = newIndex;
+            return newIndex;
+        }
+
+        for (int y = 0; y < meshSize; y++)
+        {
+            for (int x = 0; x < meshSize; x++)
+            {
+                int i00 = y * rows + x,       i01 = y * rows + (x + 1);
+                int i10 = (y + 1) * rows + x, i11 = (y + 1) * rows + (x + 1);
+
+                float w00 = lastWater[i00] / maxW, w01 = lastWater[i01] / maxW;
+                float w10 = lastWater[i10] / maxW, w11 = lastWater[i11] / maxW;
+
+                if (w00 > threshold && w10 > threshold && w01 > threshold)
+                {
+                    waterTris.Add(GetOrCreate(i00));
+                    waterTris.Add(GetOrCreate(i10));
+                    waterTris.Add(GetOrCreate(i01));
+                }
+                if (w01 > threshold && w10 > threshold && w11 > threshold)
+                {
+                    waterTris.Add(GetOrCreate(i01));
+                    waterTris.Add(GetOrCreate(i10));
+                    waterTris.Add(GetOrCreate(i11));
+                }
+            }
+        }
+
+        // --- Upload to existing mesh (no new allocations) ---
+        _waterMesh.Clear();
+        _waterMesh.SetVertices(waterVerts);
+        _waterMesh.SetTriangles(waterTris, 0);
+        _waterMesh.RecalculateNormals();
+        _waterMesh.RecalculateBounds();
+    }
+    
     void RunHydraulicErosion(int iterations, float rainPerIt, float evaporation, float capacityFactor, float depositSpeed, float erodeSpeed)
     {
         // ... (your original method - left untouched)
@@ -552,133 +691,5 @@ public class SimpleTerrain : MonoBehaviour
                 vertices[y * rows + x].y = h[y, x];
     }
 
-    /// <summary>
-    /// Build a simple water overlay mesh from lastWater. Triangles whose average vertex water
-    /// exceeds threshold become water triangles. Water mesh is slightly raised to avoid z-fight.
-    /// </summary>
-    public void CreateWaterOverlay(float threshold = 0.02f, float raise = 0.02f, Color? color = null)
-    {
-        if (lastWater == null || lastWater.Length == 0) return;
-
-        // cleanup previous
-        if (waterObject != null) DestroyImmediate(waterObject);
-
-        int rows = meshSize + 1;
-        float raiseAmount = raise;
-        Color waterColor = color ?? new Color(0f, 0.45f, 0.85f, 0.6f);
-
-        // find max water (avoid division by zero)
-        float maxW = 0f;
-        for (int i = 0; i < lastWater.Length; i++)
-            if (lastWater[i] > maxW) maxW = lastWater[i];
-        if (maxW <= 0f)
-        {
-            Debug.Log("No water to render (maxW <= 0).");
-            return;
-        }
-
-        // We'll create a shared-vertex water mesh (grid-like) so normals are smooth.
-        // Map original vertex index -> index in waterVerts (only created when needed).
-        var indexMap = new System.Collections.Generic.Dictionary<int, int>(rows * rows);
-        var waterVerts = new System.Collections.Generic.List<Vector3>();
-        var waterTris = new System.Collections.Generic.List<int>();
-
-        int vertsPerRow = rows;
-        for (int y = 0; y < meshSize; y++)
-        {
-            for (int x = 0; x < meshSize; x++)
-            {
-                int i00 = y * vertsPerRow + x;
-                int i01 = y * vertsPerRow + (x + 1);
-                int i10 = (y + 1) * vertsPerRow + x;
-                int i11 = (y + 1) * vertsPerRow + (x + 1);
-
-                // normalized water values 0..1
-                float w00 = lastWater[i00] / maxW;
-                float w01 = lastWater[i01] / maxW;
-                float w10 = lastWater[i10] / maxW;
-                float w11 = lastWater[i11] / maxW;
-
-                // two triangles per quad. Use a stricter test: all three verts must be above threshold
-                bool triA = (w00 > threshold) && (w10 > threshold) && (w01 > threshold); // (i00, i10, i01)
-                bool triB = (w01 > threshold) && (w10 > threshold) && (w11 > threshold); // (i01, i10, i11)
-
-                // helper to ensure vertex exists in waterVerts and return its index
-                int GetOrCreate(int origIdx)
-                {
-                    if (indexMap.TryGetValue(origIdx, out int mapped)) return mapped;
-                    var v = vertices[origIdx] + Vector3.up * raiseAmount;
-                    int newIndex = waterVerts.Count;
-                    waterVerts.Add(v);
-                    indexMap[origIdx] = newIndex;
-                    return newIndex;
-                }
-
-                if (triA)
-                {
-                    int a = GetOrCreate(i00);
-                    int b = GetOrCreate(i10);
-                    int c = GetOrCreate(i01);
-                    // ensure consistent winding
-                    waterTris.Add(a);
-                    waterTris.Add(b);
-                    waterTris.Add(c);
-                }
-                if (triB)
-                {
-                    int a = GetOrCreate(i01);
-                    int b = GetOrCreate(i10);
-                    int c = GetOrCreate(i11);
-                    waterTris.Add(a);
-                    waterTris.Add(b);
-                    waterTris.Add(c);
-                }
-            }
-        }
-
-        if (waterVerts.Count == 0)
-        {
-            Debug.Log("No water triangles created after thresholding.");
-            return;
-        }
-
-        // build mesh
-        Mesh wmesh = new Mesh();
-        wmesh.name = "WaterOverlay";
-        wmesh.SetVertices(waterVerts);
-        wmesh.SetTriangles(waterTris, 0);
-        wmesh.RecalculateNormals();
-        wmesh.RecalculateBounds();
-
-        // create object
-        waterObject = new GameObject("WaterOverlay");
-        waterObject.transform.SetParent(transform, false);
-        var mf = waterObject.AddComponent<MeshFilter>();
-        var mr = waterObject.AddComponent<MeshRenderer>();
-        mf.sharedMesh = wmesh;
-
-        // material: URP Unlit transparent if available; fallback to sprite material
-        var mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-        if (mat != null)
-        {
-            // Some URP versions expose different property names; attempt common ones
-            if (mat.HasProperty("_BaseColor"))
-                mat.SetColor("_BaseColor", waterColor);
-            else if (mat.HasProperty("_Color"))
-                mat.SetColor("_Color", waterColor);
-
-            // Make sure transparency blending is enabled if shader supports it
-            // (URP shader graph variants differ; if necessary set the material rendering mode in editor)
-            mr.sharedMaterial = mat;
-        }
-        else
-        {
-            var fallback = new Material(Shader.Find("Sprites/Default"));
-            fallback.SetColor("_Color", waterColor);
-            mr.sharedMaterial = fallback;
-        }
-
-        // Debug.Log($"Water overlay built: verts={waterVerts.Count}, tris={waterTris.Count/3}, maxW={maxW:F4}");
-    }
 
 }
