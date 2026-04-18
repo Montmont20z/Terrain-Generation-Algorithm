@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -34,6 +35,17 @@ public class SimpleTerrain : MonoBehaviour
     public float lakeFillAmount = 0.5f;
 
     public float globalWaterLevel = 1.0f;
+    [Header("Droplet Erosion")]
+    public int rainRate = 1000;          // droplets per tick
+    public int simulationTicks = 10;     // ticks to run on manual trigger
+    public float erosionConstant = 0.7f;    // k_e
+    public float depositionConstant = 0.08f; // k_d
+    public float capacityConstant = 4.0f;   // k_c
+    public float evaporationRate = 0.02f;
+    public float inertia = 0.3f;
+    public float dropletStepSize = 1.0f;
+    public int maxLifetime = 300;
+    public bool biasSpawnToRivers = false;
 
     // === FLOW-BASED RIVER SYSTEM===
     private readonly int[] dx8 = { 1, 1, 0, -1, -1, -1, 0, 1 };
@@ -129,7 +141,7 @@ public class SimpleTerrain : MonoBehaviour
     }
     
     [ContextMenu("Rebuild All Terrain")]
-    void RebuildAllTerrain()
+    public void RebuildAllTerrain()
     {
         if (mesh == null) return;
         // Re-generate everything when positionX/Y changes
@@ -689,6 +701,216 @@ public class SimpleTerrain : MonoBehaviour
         for (int y = 0; y < rows; y++)
             for (int x = 0; x < rows; x++)
                 vertices[y * rows + x].y = h[y, x];
+    }
+    
+    /// <summary>
+    /// Droplet-based hydraulic erosion as per proposal.
+    /// Each droplet: spawns, rolls downhill via bilinear gradient,
+    /// erodes/deposits sediment, evaporates. Modifies vertices[].y directly.
+    /// Call RunDropletErosionTicks() to run multiple ticks at once.
+    /// </summary>
+    void RunDropletErosionTick()
+    {
+        int rows = meshSize + 1;
+        System.Random rng = new System.Random(seed);
+
+        // Build a flat working heightmap from current vertices
+        // (droplets use float positions, so we need random access by [y,x])
+        float[] h = new float[rows * rows];
+        for (int i = 0; i < h.Length; i++)
+            h[i] = vertices[i].y;
+
+        // Helper: bilinear sample height at float position (px, py)
+        float SampleHeight(float px, float py)
+        {
+            int x0 = Mathf.Clamp((int)px, 0, rows - 2);
+            int y0 = Mathf.Clamp((int)py, 0, rows - 2);
+            float fx = px - x0;
+            float fy = py - y0;
+
+            float h00 = h[y0 * rows + x0];
+            float h10 = h[y0 * rows + (x0 + 1)];
+            float h01 = h[(y0 + 1) * rows + x0];
+            float h11 = h[(y0 + 1) * rows + (x0 + 1)];
+
+            return h00 * (1 - fx) * (1 - fy)
+                 + h10 * fx       * (1 - fy)
+                 + h01 * (1 - fx) * fy
+                 + h11 * fx       * fy;
+        }
+
+        // Helper: bilinear gradient at float position — returns (dH/dx, dH/dy)
+        Vector2 SampleGradient(float px, float py)
+        {
+            int x0 = Mathf.Clamp((int)px, 0, rows - 2);
+            int y0 = Mathf.Clamp((int)py, 0, rows - 2);
+            float fx = px - x0;
+            float fy = py - y0;
+
+            float h00 = h[y0 * rows + x0];
+            float h10 = h[y0 * rows + (x0 + 1)];
+            float h01 = h[(y0 + 1) * rows + x0];
+            float h11 = h[(y0 + 1) * rows + (x0 + 1)];
+
+            // partial derivatives via bilinear interpolation
+            float dHdx = (h10 - h00) * (1 - fy) + (h11 - h01) * fy;
+            float dHdy = (h01 - h00) * (1 - fx) + (h11 - h10) * fx;
+
+            return new Vector2(dHdx, dHdy);
+        }
+
+        // Helper: deposit/erode at float position using bilinear weights
+        void ModifyHeight(float px, float py, float delta)
+        {
+            int x0 = Mathf.Clamp((int)px, 0, rows - 2);
+            int y0 = Mathf.Clamp((int)py, 0, rows - 2);
+            float fx = px - x0;
+            float fy = py - y0;
+
+            // distribute delta across the 4 surrounding vertices by bilinear weights
+            h[y0 * rows + x0]           += delta * (1 - fx) * (1 - fy);
+            h[y0 * rows + (x0 + 1)]     += delta * fx       * (1 - fy);
+            h[(y0 + 1) * rows + x0]     += delta * (1 - fx) * fy;
+            h[(y0 + 1) * rows + (x0 + 1)] += delta * fx     * fy;
+        }
+
+        // --- Spawn and simulate droplets ---
+        for (int d = 0; d < rainRate; d++)
+        {
+            // Spawn position
+            float px, py;
+            if (biasSpawnToRivers && lastWater != null)
+            {
+                // bias: pick a random river cell weighted by lastWater
+                // simple rejection sample — try up to 10 times, take highest water
+                int bestIdx = rng.Next(0, rows * rows);
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    int idx = rng.Next(0, rows * rows);
+                    if (lastWater[idx] > lastWater[bestIdx]) bestIdx = idx;
+                }
+                px = bestIdx % rows;
+                py = bestIdx / rows;
+            }
+            else
+            {
+                px = (float)(rng.NextDouble() * (rows - 2));
+                py = (float)(rng.NextDouble() * (rows - 2));
+            }
+
+            // Droplet state
+            float dirX = 0f, dirY = 0f;
+            float water  = 1.0f;
+            float sediment = 0.0f;
+
+            for (int step = 0; step < maxLifetime; step++)
+            {
+                if (water < 0.01f) break;
+
+                // Out of bounds check
+                if (px < 0 || px >= rows - 1 || py < 0 || py >= rows - 1) break;
+
+                // 1. Sample gradient at current position
+                Vector2 grad = SampleGradient(px, py);
+                float slope = grad.magnitude;
+
+                // 2. Update direction with inertia (smooth the path)
+                if (slope > 0.0001f)
+                {
+                    // steepest descent = -gradient
+                    dirX = dirX * inertia + (-grad.x / slope) * (1f - inertia);
+                    dirY = dirY * inertia + (-grad.y / slope) * (1f - inertia);
+                }
+                else
+                {
+                    // flat area: nudge in a random direction to avoid infinite loop
+                    float angle = (float)(rng.NextDouble() * Mathf.PI * 2f);
+                    dirX = Mathf.Cos(angle);
+                    dirY = Mathf.Sin(angle);
+                }
+
+                // normalize direction
+                float dirLen = Mathf.Sqrt(dirX * dirX + dirY * dirY);
+                if (dirLen > 0.0001f) { dirX /= dirLen; dirY /= dirLen; }
+
+                float oldPx = px, oldPy = py;
+                float oldH  = SampleHeight(px, py);
+
+                // 3. Move droplet
+                px += dirX * dropletStepSize;
+                py += dirY * dropletStepSize;
+
+                if (px < 0 || px >= rows - 1 || py < 0 || py >= rows - 1) break;
+
+                float newH = SampleHeight(px, py);
+                float heightDiff = newH - oldH; // positive = moved uphill
+
+                // 4. Sediment capacity
+                float capacity = Mathf.Max(-heightDiff, 0.001f) * water * capacityConstant;
+                // use slope = max(-heightDiff, min_slope) so flat areas still have capacity
+
+                // 5. Erode or deposit
+                if (sediment > capacity || heightDiff > 0f)
+                {
+                    // Deposit: overfull or moving uphill
+                    float depositAmount = (heightDiff > 0f)
+                        ? Mathf.Min(sediment, heightDiff)          // fill the uphill pit
+                        : (sediment - capacity) * depositionConstant;
+
+                    sediment -= depositAmount;
+                    ModifyHeight(oldPx, oldPy, depositAmount);
+                }
+                else
+                {
+                    // Erode
+                    float erodeAmount = Mathf.Min(
+                        (capacity - sediment) * erosionConstant,
+                        -heightDiff + 0.001f   // don't erode more than the drop height
+                    );
+                    erodeAmount = Mathf.Max(0f, erodeAmount);
+                    sediment += erodeAmount;
+                    ModifyHeight(oldPx, oldPy, -erodeAmount);
+                }
+
+                // 6. Evaporate
+                water *= (1f - evaporationRate);
+            }
+
+            // Remaining sediment deposits at final position
+            if (sediment > 0f)
+                ModifyHeight(px, py, sediment);
+        }
+
+        // Write back to vertices
+        for (int i = 0; i < h.Length; i++)
+            vertices[i].y = Mathf.Max(0f, h[i]);
+    }
+
+    [ContextMenu("Run Droplet Erosion")]
+    public void RunDropletErosionTicks()
+    {
+        for (int t = 0; t < simulationTicks; t++)
+            RunDropletErosionTick();
+
+        mesh.vertices = vertices;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        RebuildWaterOverlay();
+        Debug.Log($"Droplet erosion done: {simulationTicks} ticks × {rainRate} droplets = {simulationTicks * rainRate} total droplets");
+    }
+    
+    public IEnumerator RunErosionTimeLapse(int totalTicks)
+    {
+        for (int t = 0; t < totalTicks; t++)
+        {
+            RunDropletErosionTick();
+            mesh.vertices = vertices;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            RebuildWaterOverlay();
+            Debug.Log("current tick" + t);
+            yield return null; // one tick per frame — visible evolution
+        }
     }
 
 

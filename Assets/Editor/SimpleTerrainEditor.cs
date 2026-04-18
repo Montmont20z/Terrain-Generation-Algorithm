@@ -17,9 +17,14 @@ public class SimpleTerrainEditor : Editor
         GUILayout.Space(10); 
         if (GUILayout.Button("Rebuild Terrain", GUILayout.Height(30)))
         {
+            script.RebuildAllTerrain();
+        }
+        
+        GUILayout.Space(10); 
+        if (GUILayout.Button("Run Erosion", GUILayout.Height(30)))
+        {
             // This calls your function!
-            script.Invoke("RebuildAllTerrain", 0); 
-            // Note: Use script.RebuildTerrain() if the function is public
+            script.RunDropletErosionTicks();
         }
     }
 }

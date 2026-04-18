@@ -608,6 +608,16 @@ MonoBehaviour:
   lakeMaxHeight: 2.5
   lakeFillAmount: 0.5
   globalWaterLevel: 1.5
+  rainRate: 1000
+  simulationTicks: 100
+  erosionConstant: 0.7
+  depositionConstant: 0.08
+  capacityConstant: 4
+  evaporationRate: 0.02
+  inertia: 0.3
+  dropletStepSize: 1
+  maxLifetime: 300
+  biasSpawnToRivers: 0
 --- !u!23 &1609934460
 MeshRenderer:
   m_ObjectHideFlags: 0
