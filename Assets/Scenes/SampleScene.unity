@@ -601,15 +601,15 @@ MonoBehaviour:
   seed: 1
   meshSize: 250
   heightScale: 50
-  riverMaxTerrainHeight: 50
+  riverMaxTerrainHeight: 80
   riverAccumulationThreshold: 60
   riverDepth: 5
   lakeWidthMultiplier: 8
   lakeMaxHeight: 2.5
   lakeFillAmount: 0.5
   globalWaterLevel: 1.5
-  rainRate: 1000
-  simulationTicks: 100
+  rainRate: 10
+  simulationTicks: 10
   erosionConstant: 0.7
   depositionConstant: 0.08
   capacityConstant: 4
@@ -617,7 +617,7 @@ MonoBehaviour:
   inertia: 0.3
   dropletStepSize: 1
   maxLifetime: 300
-  biasSpawnToRivers: 0
+  biasSpawnToRivers: 1
 --- !u!23 &1609934460
 MeshRenderer:
   m_ObjectHideFlags: 0

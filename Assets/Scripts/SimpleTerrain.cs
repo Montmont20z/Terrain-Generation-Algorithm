@@ -21,11 +21,20 @@ public class SimpleTerrain : MonoBehaviour
     [Tooltip("Only carve rivers below this terrain height (avoid mountain crests)")]
     public float riverMaxTerrainHeight = 30.0f;
 
-    [Tooltip("Accumulation threshold for river cells (upstream cell count). Lower = more rivers on small meshes (try 10-30 for 51x51 grid)")]
-    public float riverAccumulationThreshold = 50f;
+    [Tooltip("Minimum flow accumulation to be considered a river channel")]
+    public int riverThreshold = 100;
 
-    [Tooltip("Max depth carved at main river channel (deeper for bigger rivers via log scaling)")]
-    public float riverDepth = 2.0f;
+    [Tooltip("Base river width (adds flat-bottom carving around channel)")]
+    public float riverWidthBase = 1f;
+
+    [Tooltip("Log scale factor — higher = wider rivers with more accumulation")]
+    public float riverWidthScale = 1f;
+
+    [Tooltip("Max depth carved at the main river channel")]
+    public float riverCarveDepthMax = 10f;
+
+    [Tooltip("Remove single-cell sinks so flow can propagate correctly")]
+    public bool usePitFilling = true;
 
     [Header("Lakes")]
     [Tooltip("Multiply river threshold to produce broader basins that become lakes if low-lying")]
@@ -266,27 +275,22 @@ public class SimpleTerrain : MonoBehaviour
         int rows = meshSize + 1;
         lastWater = new float[rows * rows];
 
-        // 1. Copy current Perlin heights (original terrain before any carving)
         float[,] originalHeight = new float[rows, rows];
         for (int y = 0; y < rows; y++)
             for (int x = 0; x < rows; x++)
                 originalHeight[y, x] = vertices[y * rows + x].y;
 
-        // 2. Make a working copy for flow simulation (we will pit-fill this copy)
         float[,] flowHeight = new float[rows, rows];
         System.Array.Copy(originalHeight, flowHeight, rows * rows);
 
-        // 3. Lightweight pit filling (removes single-cell sinks so flow can propagate)
-        ApplyPitFilling(flowHeight, rows);
+        // UsePitFilling is now togglable per spec
+        if (usePitFilling)
+            ApplyPitFilling(flowHeight, rows);
 
-        // 4. Compute flow directions on the pit-filled heightmap
         int[,] flowDir = ComputeFlowDirections(flowHeight, rows);
-
-        // 5. Compute flow accumulation (how many cells drain into each cell)
         float[,] accumulation = ComputeFlowAccumulation(flowHeight, flowDir, rows);
 
-        // 6. Carve rivers + create lakes + build water mask
-        int carvedCount = 0;
+        // Precompute max log accumulation for normalization
         float maxLogAcc = 0f;
         for (int y = 0; y < rows; y++)
             for (int x = 0; x < rows; x++)
@@ -297,6 +301,7 @@ public class SimpleTerrain : MonoBehaviour
         if (maxLogAcc <= 0f) maxLogAcc = 1f;
 
         float effectiveGlobalWaterLevel = globalWaterLevel > 0f ? globalWaterLevel : heightScale * 0.1f;
+        int carvedCount = 0;
 
         for (int y = 0; y < rows; y++)
         {
@@ -306,44 +311,63 @@ public class SimpleTerrain : MonoBehaviour
                 float acc = accumulation[y, x];
                 float origH = originalHeight[y, x];
 
-                bool isRiver = (acc > riverAccumulationThreshold) && (origH < riverMaxTerrainHeight);
+                // River width from spec: W(x,y) = RiverWidthBase + RiverWidthScale * log(A)
+                float logAcc = Mathf.Log(acc + 1f);
+                float riverWidth = riverWidthBase + riverWidthScale * logAcc;
 
-                // === RIVER CARVING (main channel) ===
-                if (isRiver)
+                // A cell is a river channel if accumulation exceeds threshold
+                bool isRiverChannel = (acc > riverThreshold) && (origH < riverMaxTerrainHeight);
+
+                // A cell is in the river WIDTH band if any neighbor within riverWidth
+                // is a channel — approximated here by checking if acc exceeds a
+                // width-scaled threshold (efficient single-pass approximation)
+                float widthThreshold = riverThreshold / Mathf.Max(1f, riverWidth);
+                bool isRiverWidth = (acc > widthThreshold) && (origH < riverMaxTerrainHeight);
+
+                if (isRiverChannel)
                 {
-                    float norm = Mathf.Log(acc + 1f) / maxLogAcc; // logarithmic scaling = wider/deeper rivers naturally
-                    float depth = riverDepth * norm;
+                    // Carve depth: D(x,y) = RiverCarveDepthMax * log(A) / maxLogAcc
+                    float norm  = logAcc / maxLogAcc;
+                    float depth = riverCarveDepthMax * norm;
                     vertices[i].y = Mathf.Max(0f, origH - depth);
                     carvedCount++;
+                }
+                else if (isRiverWidth)
+                {
+                    // River bank — carve shallower based on distance from channel
+                    // approximated as half depth scaled by width factor
+                    float norm        = logAcc / maxLogAcc;
+                    float bankDepth   = riverCarveDepthMax * norm * 0.3f;
+                    vertices[i].y     = Mathf.Max(0f, origH - bankDepth);
                 }
                 else
                 {
                     vertices[i].y = origH;
                 }
 
-                // === LAKE BASINS (wider low-lying areas near rivers) ===
-                float lakeThreshold = riverAccumulationThreshold / Mathf.Max(1f, lakeWidthMultiplier);
+                // === LAKE BASINS ===
+                float lakeThreshold = riverThreshold / Mathf.Max(1f, lakeWidthMultiplier);
                 if (origH <= lakeMaxHeight && acc > lakeThreshold)
-                {
-                    // shallow basin carve for lake look
                     vertices[i].y = Mathf.Max(0f, vertices[i].y - lakeFillAmount * 0.5f);
-                }
 
-                // === WATER MASK (for overlay) ===
+                // === WATER MASK ===
                 float w = Mathf.Clamp01((effectiveGlobalWaterLevel - vertices[i].y) / effectiveGlobalWaterLevel);
-                if (isRiver) w = 1f;                                 // rivers are always full water
-                if (origH <= lakeMaxHeight && acc > lakeThreshold) w = Mathf.Max(w, lakeFillAmount); // lakes get water too
+                if (isRiverChannel) w = 1f;
+                if (isRiverWidth)   w = Mathf.Max(w, 0.6f);
+                if (origH <= lakeMaxHeight && acc > lakeThreshold) w = Mathf.Max(w, lakeFillAmount);
 
                 lastWater[i] = w;
             }
         }
-        
-        // After setting lastWater in ApplyRiverAndLakes, blur/dilate it
+
+        // Dilate water mask
         float[] dilated = new float[lastWater.Length];
         for (int y = 0; y < rows; y++)
-            for (int x = 0; x < rows; x++) {
+            for (int x = 0; x < rows; x++)
+            {
                 float max = lastWater[y * rows + x];
-                for (int d = 0; d < 8; d++) {
+                for (int d = 0; d < 8; d++)
+                {
                     int nx2 = x + dx8[d], ny2 = y + dy8[d];
                     if (nx2 >= 0 && nx2 < rows && ny2 >= 0 && ny2 < rows)
                         max = Mathf.Max(max, lastWater[ny2 * rows + nx2]);
@@ -352,11 +376,10 @@ public class SimpleTerrain : MonoBehaviour
             }
         lastWater = dilated;
 
-        Debug.Log($"ApplyRiverAndLakes (flow-based): carved {carvedCount} river cells | max acc ≈ {accumulation[rows / 2, rows / 2]:F0}");
+        Debug.Log($"ApplyRiverAndLakes: carved {carvedCount} channel cells | riverWidth formula: {riverWidthBase} + {riverWidthScale} * log(A)");
     }
 
     // ====================== HELPER METHODS (new) ======================
-
     private int[,] ComputeFlowDirections(float[,] h, int size)
     {
         int[,] dir = new int[size, size];
@@ -866,6 +889,7 @@ public class SimpleTerrain : MonoBehaviour
                     float erodeAmount = Mathf.Min(
                         (capacity - sediment) * erosionConstant,
                         -heightDiff + 0.001f   // don't erode more than the drop height
+                        // 0.5f // max crave
                     );
                     erodeAmount = Mathf.Max(0f, erodeAmount);
                     sediment += erodeAmount;
