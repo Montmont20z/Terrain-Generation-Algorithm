@@ -117,6 +117,40 @@ public class SimpleTerrain : MonoBehaviour
     
     private void OnValidate()
     {
+        /// Clamp values
+        // === Perlin ===
+        scale        = Mathf.Max(0.01f, scale);
+        octaves      = Mathf.Clamp(octaves, 1, 12);
+        persistence  = Mathf.Clamp(persistence, 0.1f, 0.9f);
+        lacunarity   = Mathf.Max(1.01f, lacunarity);
+        heightScale  = Mathf.Max(1f, heightScale);
+        meshSize     = Mathf.Clamp(meshSize, 10, 512);
+        
+        // === River ===
+        riverThreshold      = Mathf.Max(1, riverThreshold);
+        riverWidthBase      = Mathf.Max(0.1f, riverWidthBase);
+        riverWidthScale     = Mathf.Max(0f, riverWidthScale);
+        riverCarveDepthMax  = Mathf.Clamp(riverCarveDepthMax, 0.1f, heightScale);
+        riverMaxTerrainHeight = Mathf.Clamp(riverMaxTerrainHeight, 0f, heightScale);
+        globalWaterLevel    = Mathf.Max(0f, globalWaterLevel);
+
+        // === Lakes ===
+        lakeWidthMultiplier = Mathf.Max(1.01f, lakeWidthMultiplier);
+        lakeMaxHeight       = Mathf.Clamp(lakeMaxHeight, 0f, heightScale * 0.5f);
+        lakeFillAmount      = Mathf.Clamp(lakeFillAmount, 0f, 1f);
+
+        // === Droplet Erosion ===
+        rainRate            = Mathf.Clamp(rainRate, 1, 5000);
+        simulationTicks     = Mathf.Clamp(simulationTicks, 1, 200);
+        erosionConstant     = Mathf.Clamp(erosionConstant, 0.01f, 1f);
+        depositionConstant  = Mathf.Clamp(depositionConstant, 0.01f, 1f);
+        capacityConstant    = Mathf.Clamp(capacityConstant, 0.1f, 20f);
+        evaporationRate     = Mathf.Clamp(evaporationRate, 0.001f, 0.5f);
+        inertia             = Mathf.Clamp(inertia, 0f, 0.99f);
+        dropletStepSize     = Mathf.Clamp(dropletStepSize, 0.1f, 5f);
+        maxLifetime         = Mathf.Clamp(maxLifetime, 10, 1000);
+
+        // reset terrain flag
         _terrainDirty = true;
     }
 
