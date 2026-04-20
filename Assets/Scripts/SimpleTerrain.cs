@@ -112,7 +112,7 @@ public class SimpleTerrain : MonoBehaviour
         RebuildWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
         
         CacheRiverParams(); 
-
+        
     }
     
     private void OnValidate()
@@ -172,7 +172,7 @@ public class SimpleTerrain : MonoBehaviour
 
         // Re-generate everything when positionX/Y changes
         ApplyPerlinToVertices();
-        // LogTerrainStats($"lacunarity={lacunarity}");
+        // LogTerrainStats($"seed={seed}");
 
         if (isRiverParamsDirty())
         {
@@ -965,8 +965,10 @@ public class SimpleTerrain : MonoBehaviour
     [ContextMenu("Run Droplet Erosion")]
     public void RunDropletErosionTicks()
     {
-        for (int t = 0; t < simulationTicks; t++)
-            RunDropletErosionTick();
+        for (int t = 0; t < simulationTicks; t++){
+            LogErosionTickStats(simulationTicks + 1);
+            // RunDropletErosionTick();
+        }
 
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
@@ -1011,6 +1013,51 @@ public class SimpleTerrain : MonoBehaviour
         float stdDev = Mathf.Sqrt(variance / count);
 
         Debug.Log($"[{label}] StdDev={stdDev:F2} | Min={min:F2} | Max={max:F2} | Mean={mean:F2}");
+    }
+    
+    public void LogPerformanceStats()
+    {
+        var sw = new System.Diagnostics.Stopwatch();
+        
+        sw.Restart();
+        ApplyPerlinToVertices();
+        sw.Stop();
+        long perlinMs = sw.ElapsedMilliseconds;
+
+        sw.Restart();
+        ApplyRiverAndLakes();
+        sw.Stop();
+        long riverMs = sw.ElapsedMilliseconds;
+
+        sw.Restart();
+        RunDropletErosionTick();
+        sw.Stop();
+        long erosionMs = sw.ElapsedMilliseconds;
+
+        long memoryKB = System.GC.GetTotalMemory(false) / 1024;
+
+        Debug.Log($"[meshSize={meshSize}] Perlin={perlinMs}ms | Rivers={riverMs}ms | ErosionTick={erosionMs}ms | Memory={memoryKB}KB");
+    }
+    
+    public void LogErosionTickStats(int tickNumber)
+    {
+        var sw = new System.Diagnostics.Stopwatch();
+        sw.Restart();
+        RunDropletErosionTick();
+        sw.Stop();
+
+        float sum = 0f;
+        float min = float.MaxValue, max = float.MinValue;
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            float h = vertices[i].y;
+            sum += h;
+            if (h < min) min = h;
+            if (h > max) max = h;
+        }
+        float mean = sum / vertices.Length;
+
+        Debug.Log($"[Tick={tickNumber}] Time={sw.ElapsedMilliseconds}ms | Mean={mean:F2} | Min={min:F2} | Max={max:F2}");
     }
 
 
