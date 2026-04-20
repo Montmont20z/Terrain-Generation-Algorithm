@@ -9,9 +9,9 @@ public class TerrainUIController : MonoBehaviour
 
     // === MENU PANEL ===
     [Header("Menu Panel")]
-    public RectTransform menuPanel;         // The compact panel anchored to top-left corner
-    public Button toggleMenuButton;         // Shows/hides the dropdown body
-    public GameObject menuBody;             // Everything below the top bar (dropdowns + buttons)
+    public RectTransform menuPanel;
+    public Button toggleMenuButton;
+    public GameObject menuBody;
 
     // === DROPDOWN TOGGLE BUTTONS ===
     [Header("Dropdown Toggle Buttons")]
@@ -29,8 +29,7 @@ public class TerrainUIController : MonoBehaviour
     [Header("Terrain Fields")]
     public TMP_InputField seedField;
     public TMP_InputField scaleField;
-    public Slider octavesSlider;
-    public TMP_Text octavesText;
+    public TMP_InputField octavesField;      // replaces octavesSlider + octavesText
     public TMP_InputField persistenceField;
     public TMP_InputField lacunarityField;
     public TMP_InputField heightScaleField;
@@ -76,7 +75,7 @@ public class TerrainUIController : MonoBehaviour
 
     void Start()
     {
-        // Start with only the top bar visible, body hidden
+        // Start with body hidden
         menuBody.SetActive(menuOpen);
 
         // All dropdowns start collapsed
@@ -95,8 +94,7 @@ public class TerrainUIController : MonoBehaviour
         // Populate fields
         seedField.text = terrainScript.seed.ToString();
         scaleField.text = terrainScript.scale.ToString();
-        octavesSlider.value = terrainScript.octaves;
-        octavesText.text = terrainScript.octaves.ToString();
+        octavesField.text = terrainScript.octaves.ToString();
         persistenceField.text = terrainScript.persistence.ToString();
         lacunarityField.text = terrainScript.lacunarity.ToString();
         heightScaleField.text = terrainScript.heightScale.ToString();
@@ -126,9 +124,6 @@ public class TerrainUIController : MonoBehaviour
         // Action buttons
         rebuildButton.onClick.AddListener(OnRebuildClicked);
         erosionButton.onClick.AddListener(OnErosionClicked);
-
-        // Slider display
-        octavesSlider.onValueChanged.AddListener(UpdateOctavesText);
     }
 
     // =========================================================
@@ -140,8 +135,6 @@ public class TerrainUIController : MonoBehaviour
         menuOpen = !menuOpen;
         menuBody.SetActive(menuOpen);
 
-        // Collapse all dropdowns when menu is closed
-        // so it reopens clean and compact
         if (!menuOpen)
         {
             terrainOpen = false;
@@ -176,15 +169,6 @@ public class TerrainUIController : MonoBehaviour
     }
 
     // =========================================================
-    //  SLIDER DISPLAY
-    // =========================================================
-
-    void UpdateOctavesText(float value)
-    {
-        octavesText.text = Mathf.RoundToInt(value).ToString();
-    }
-
-    // =========================================================
     //  ACTION BUTTONS
     // =========================================================
 
@@ -209,7 +193,8 @@ public class TerrainUIController : MonoBehaviour
         if (float.TryParse(scaleField.text, out float scale))
             terrainScript.scale = Mathf.Max(0.01f, scale);
 
-        terrainScript.octaves = Mathf.RoundToInt(octavesSlider.value);
+        if (int.TryParse(octavesField.text, out int octaves))
+            terrainScript.octaves = Mathf.Clamp(octaves, 1, 8);
 
         if (float.TryParse(persistenceField.text, out float persistence))
             terrainScript.persistence = Mathf.Clamp01(persistence);
@@ -254,7 +239,7 @@ public class TerrainUIController : MonoBehaviour
 
         // Erosion
         if (int.TryParse(rainRateField.text, out int rainRate))
-            terrainScript.rainRate = Mathf.Max(1, rainRate);
+            terrainScript.rainRate = Mathf.Max(0, rainRate);
 
         if (int.TryParse(simulationTicksField.text, out int simulationTicks))
             terrainScript.simulationTicks = Mathf.Max(1, simulationTicks);
