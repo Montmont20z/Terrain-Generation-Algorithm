@@ -16247,7 +16247,7 @@ MonoBehaviour:
   persistence: 0.5
   lacunarity: 2
   seed: 1
-  meshSize: 280
+  meshSize: 250
   heightScale: 50
   riverMaxTerrainHeight: 40
   riverThreshold: 100
