@@ -94,9 +94,7 @@ public class SimpleTerrain : MonoBehaviour
             mr.sharedMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
 
         // set seeded random offsets to avoid sampling integer lattice points
-        System.Random rng = new System.Random(seed);
-        offsetX = rng.Next(-100000, 100000);
-        offsetY = rng.Next(-100000, 100000);
+        RegenerateNoiseOffsets();
 
         ApplyPerlinToVertices();
         ApplyRiverAndLakes();
@@ -112,6 +110,8 @@ public class SimpleTerrain : MonoBehaviour
         mesh.RecalculateBounds();
 
         RebuildWaterOverlay(threshold: 0.02f, raise: 0.02f, color: new Color(0f, 0.45f, 0.85f, 0.6f));
+        
+        CacheRiverParams(); 
 
     }
     
@@ -166,9 +166,14 @@ public class SimpleTerrain : MonoBehaviour
     void RebuildTerrain()
     {
         if (mesh == null) return;
+        
+        if (seed != _lastSeed)
+            RegenerateNoiseOffsets();
+
         // Re-generate everything when positionX/Y changes
         ApplyPerlinToVertices();
-        
+        // LogTerrainStats($"lacunarity={lacunarity}");
+
         if (isRiverParamsDirty())
         {
             ApplyRiverAndLakes();           // ← rivers & lakes now follow the shifted Perlin terrain
@@ -187,6 +192,10 @@ public class SimpleTerrain : MonoBehaviour
     public void RebuildAllTerrain()
     {
         if (mesh == null) return;
+        
+        if (seed != _lastSeed)
+            RegenerateNoiseOffsets();
+
         // Re-generate everything when positionX/Y changes
         ApplyPerlinToVertices();
         
@@ -196,6 +205,8 @@ public class SimpleTerrain : MonoBehaviour
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
+        
+        CacheRiverParams(); 
     }
     
     private bool isRiverParamsDirty()
@@ -210,6 +221,13 @@ public class SimpleTerrain : MonoBehaviour
         _lastScale = scale; _lastHeightScale = heightScale;
         _lastPersistence = persistence; _lastLacunarity = lacunarity;
         _lastOctaves = octaves; _lastSeed = seed;
+    }
+    
+    private void RegenerateNoiseOffsets()
+    {
+        System.Random rng = new System.Random(seed);
+        offsetX = rng.Next(-100000, 100000);
+        offsetY = rng.Next(-100000, 100000);
     }
 
     private void CreateGridMesh()
@@ -969,6 +987,30 @@ public class SimpleTerrain : MonoBehaviour
             Debug.Log("current tick" + t);
             yield return null; // one tick per frame — visible evolution
         }
+    }
+    
+    ///Measure performances functions
+    public void LogTerrainStats(string label)
+    {
+        float min = float.MaxValue, max = float.MinValue, sum = 0f;
+        int count = vertices.Length;
+
+        for (int i = 0; i < count; i++)
+        {
+            float h = vertices[i].y;
+            if (h < min) min = h;
+            if (h > max) max = h;
+            sum += h;
+        }
+
+        float mean = sum / count;
+
+        float variance = 0f;
+        for (int i = 0; i < count; i++)
+            variance += (vertices[i].y - mean) * (vertices[i].y - mean);
+        float stdDev = Mathf.Sqrt(variance / count);
+
+        Debug.Log($"[{label}] StdDev={stdDev:F2} | Min={min:F2} | Max={max:F2} | Mean={mean:F2}");
     }
 
 

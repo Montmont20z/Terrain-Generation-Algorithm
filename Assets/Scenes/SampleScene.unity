@@ -1597,7 +1597,7 @@ MonoBehaviour:
   riverThreshold: 100
   riverWidthBase: 1
   riverWidthScale: 1
-  riverCarveDepthMax: 10
+  riverCarveDepthMax: 2
   usePitFilling: 1
   lakeWidthMultiplier: 8
   lakeMaxHeight: 2.5
