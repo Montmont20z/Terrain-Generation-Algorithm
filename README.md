@@ -7,8 +7,6 @@
 
 > Minecraft-style worlds are generated once and then frozen forever. This project makes the terrain **age**: same seed, same reproducible world, but one that is carved by rain, rivers and sediment over time.
 
-<!-- EDIT: drop your best hero GIF / time-lapse here -->
-<!-- ![Terrain erosion time-lapse](docs/media/timelapse.gif) -->
 <img width="800" height="519" alt="1012-ezgif com-optimize" src="https://github.com/user-attachments/assets/ab0082aa-e2d2-4b09-93a4-0eb3a8b847bf" />
 
 
@@ -109,10 +107,17 @@ Modular, deterministic and event-driven, built for three audiences:
 Supports both **offline precomputation** and **incremental runtime simulation**.
 
 
-<img width="174" height="551" alt="Picture1" src="https://github.com/user-attachments/assets/6bd0f02c-d950-4e96-b022-73ca8d3f60ee" /><br>
-### Fig. 1. Perlin Noise Flowchart <br>
+```mermaid
+flowchart TD
+    Start([Start]) --> Input[/"Input:<br>Seed S, Width W, Height H,<br>Parameters"/]
+    Input --> Perlin["Multi-Octave Perlin Noise<br>For i = 0 to n_octaves:<br>A = persistence^i<br>f = lacunarity^i<br>h += A * Perlin(fx, fy, S)"]
+    Perlin --> Normalize["Normalize and Scale<br>to Target Elevation Range"]
+    Normalize --> Output[/"Heightmap H(x,y)"/]
+    Output --> End([End])
+```
+### Fig. 1. Perlin Noise Flowchart <br> <br>
 <img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" /><br>
-### Fig. 2. River Generation Flowchart<br>
+### Fig. 2. River Generation Flowchart<br> <br>
 
 
 ---
