@@ -107,9 +107,12 @@ Modular, deterministic and event-driven, built for three audiences:
 - **Runtime systems** (weather, events, AI) that modify terrain during gameplay
 
 Supports both **offline precomputation** and **incremental runtime simulation**.
-<img width="334" height="689" alt="Picture3" src="https://github.com/user-attachments/assets/702cdc33-7aef-4746-a81e-6c83a4d5e5cb" />
-<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" />
+
+
 <img width="174" height="551" alt="Picture1" src="https://github.com/user-attachments/assets/6bd0f02c-d950-4e96-b022-73ca8d3f60ee" />
+### Fig. 1. Perlin Noise Flowchart
+<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" />
+### Fig. 2. River Generation Flowchart
 
 
 ---
