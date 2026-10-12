@@ -109,10 +109,10 @@ Modular, deterministic and event-driven, built for three audiences:
 Supports both **offline precomputation** and **incremental runtime simulation**.
 
 
-<img width="174" height="551" alt="Picture1" src="https://github.com/user-attachments/assets/6bd0f02c-d950-4e96-b022-73ca8d3f60ee" />
-### Fig. 1. Perlin Noise Flowchart
-<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" />
-### Fig. 2. River Generation Flowchart
+<img width="174" height="551" alt="Picture1" src="https://github.com/user-attachments/assets/6bd0f02c-d950-4e96-b022-73ca8d3f60ee" /><br>
+### Fig. 1. Perlin Noise Flowchart <br>
+<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" /><br>
+### Fig. 2. River Generation Flowchart<br>
 
 
 ---
