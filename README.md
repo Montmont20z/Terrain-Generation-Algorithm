@@ -107,8 +107,10 @@ Modular, deterministic and event-driven, built for three audiences:
 - **Runtime systems** (weather, events, AI) that modify terrain during gameplay
 
 Supports both **offline precomputation** and **incremental runtime simulation**.
+<img width="334" height="689" alt="Picture3" src="https://github.com/user-attachments/assets/702cdc33-7aef-4746-a81e-6c83a4d5e5cb" />
+<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" />
+<img width="174" height="551" alt="Picture1" src="https://github.com/user-attachments/assets/6bd0f02c-d950-4e96-b022-73ca8d3f60ee" />
 
-<!-- EDIT: add flowchart images (Perlin, River Generation, Hydraulic Erosion) from the proposal, e.g. docs/media/fig1-perlin.png -->
 
 ---
 
@@ -169,17 +171,6 @@ Supports both **offline precomputation** and **incremental runtime simulation**.
 
 ---
 
-## 🚧 Status
-
-<!-- EDIT: be specific. Examples:
-- ✅ Perlin fBm + seeding
-- ✅ D8 flow + accumulation
-- 🔧 Droplet erosion tuning
-- 🗓️ Time-lapse export
-Add real screenshots, FPS and generation-time numbers once you have measured them. -->
-
----
-
 ## 🚀 Getting Started
 
 <!-- EDIT: add Unity version, clone instructions, how to open the scene, how to set a seed and press Generate. -->
@@ -207,8 +198,6 @@ Bachelor of Computer Science (Honours) in Interactive Software Technology, Tunku
 - **Cheah Hong Lek**
 - **Jonathan Wong Rong Wei**
 - **Soi Hui Fang**
-
-<!-- EDIT: add GitHub profile links and who built what -->
 
 ---
 
