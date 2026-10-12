@@ -4,7 +4,6 @@
 ![Unity](https://img.shields.io/badge/Unity-C%23-black?logo=unity)
 ![Domain](https://img.shields.io/badge/Domain-Procedural%20Generation-blue)
 ![Deterministic](https://img.shields.io/badge/Generation-Deterministic%20(seeded)-success)
-![Status](https://img.shields.io/badge/Status-<!--%20EDIT:%20Proposal%20%7C%20In%20Progress%20%7C%20Complete%20-->-lightgrey)
 
 > Minecraft-style worlds are generated once and then frozen forever. This project makes the terrain **age**: same seed, same reproducible world, but one that is carved by rain, rivers and sediment over time.
 
