@@ -116,8 +116,54 @@ flowchart TD
     Output --> End([End])
 ```
 ### Fig. 1. Perlin Noise Flowchart <br> <br>
-<img width="297" height="678" alt="Picture2" src="https://github.com/user-attachments/assets/575c5ebc-af8a-46c4-9803-0888773adcfc" /><br>
+
+```mermaid
+flowchart TD
+    Start([Start]) --> Input[/"Heightmap H(x,y)"/]
+    Input --> D8["D8 Flow Direction<br>For each cell:<br>Compute 8 neighbor slopes<br>d(x,y) = steepest downhill neighbor (0–7)<br>If all >= center → sink"]
+    D8 --> PitFill["Lightweight Pit Filling<br>Remove single-cell sinks / local minima<br>→ Guarantee valid downhill everywhere"]
+    PitFill --> FlowAcc["Flow Accumulation A(x,y)<br>A = 1 + ∑ A(upstream cells)<br>Single-pass topological sort O(W H)"]
+    FlowAcc --> Decision{"A(x,y) > river_threshold<br>(default 100)?"}
+    
+    Decision -- Yes --> River["Mark as River Channel<br>width ≈ w_base + k_scale · log(A)<br>Carve heightmap:<br>H -= min( depth_max, scale_factor )"]
+    Decision -- No --> Normal["Normal Terrain Cell"]
+    
+    River --> Combine["River & Lake Map + Updated H"]
+    Normal --> Combine
+    
+    Combine --> Output[/"Heightmap H(x,y)"/]
+    Output --> End([End])
+```
 ### Fig. 2. River Generation Flowchart<br> <br>
+
+```mermaid
+flowchart TD
+    Start([Start]) --> Input[/"Heightmap H(x,y)"/]
+    Input --> Spawn["Spawn droplets (rain rate 500~2000/tick)<br>Seeded RNG<br>State: p(x,y), dir, w=1.0, s=0.0"]
+    
+    Spawn --> Alive{"Droplet alive?<br>w > 0.01 AND lifetime < max_lifetime<br>(=300)"}
+    
+    Alive -- No --> More{"More droplets / ticks?"}
+    More -- Yes --> Spawn
+    More -- No --> FinalOut[/"Final Eroded Heightmap"/] --> End([End])
+    
+    Alive -- Yes --> Grad["Compute gradient g = bilinear_gradient(H, p)<br>slope = length(g)"]
+    Grad --> Dir["dir = lerp(dir, normalize(-g), inertia = 0.3)"]
+    Dir --> Pos["p = p + dir * step_size"]
+    Pos --> Cap["capacity C = k_c * w * slope<br>(k_c = 4.0, simplified — no velocity)"]
+    
+    Cap --> CheckCap{"Is s < C?"}
+    
+    CheckCap -- Yes --> Erode["Erode:<br>ΔE = min( k_e * (C - s), available H,<br>hard limit e.g. 0.1 )<br>H(p) -= ΔE<br>s += ΔE<br>(k_e = 0.7)"]
+    CheckCap -- No --> Deposit["Deposit:<br>ΔD = k_d * (s - C)<br>H(p) += ΔD<br>s -= ΔD<br>(k_d = 0.08)"]
+    
+    Erode --> Evap["Evaporate: w *= (1 - evap_rate = 0.02)"]
+    Deposit --> Evap
+    
+    Evap --> Lifetime["lifetime += 1"]
+    Lifetime --> Alive
+```
+### Fig. 3. River Generation Flowchart<br> <br>
 
 
 ---
