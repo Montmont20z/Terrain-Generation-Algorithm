@@ -229,9 +229,7 @@ flowchart TD
 
 ---
 
-## 🚀 Getting Started
-
-## Getting Started
+## 🚀 Getting Started (Installation)
 
 ### Requirements
 
