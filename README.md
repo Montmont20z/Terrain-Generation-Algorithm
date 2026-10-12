@@ -112,14 +112,14 @@ flowchart TD
     Start([Start]) --> Input[/"Input:<br>Seed S, Width W, Height H,<br>Parameters"/]
     Input --> Perlin["Multi-Octave Perlin Noise<br>For i = 0 to n_octaves:<br>A = persistence^i<br>f = lacunarity^i<br>h += A * Perlin(fx, fy, S)"]
     Perlin --> Normalize["Normalize and Scale<br>to Target Elevation Range"]
-    Normalize --> Output[/"Heightmap H(x,y)"/]
+    Normalize --> Output[/"Output: Heightmap H(x,y)"/]
     Output --> End([End])
 ```
 ### Fig. 1. Perlin Noise Flowchart <br> <br>
 
 ```mermaid
 flowchart TD
-    Start([Start]) --> Input[/"Heightmap H(x,y)"/]
+    Start([Start]) --> Input[/"Input: Heightmap H(x,y)"/]
     Input --> D8["D8 Flow Direction<br>For each cell:<br>Compute 8 neighbor slopes<br>d(x,y) = steepest downhill neighbor (0–7)<br>If all >= center → sink"]
     D8 --> PitFill["Lightweight Pit Filling<br>Remove single-cell sinks / local minima<br>→ Guarantee valid downhill everywhere"]
     PitFill --> FlowAcc["Flow Accumulation A(x,y)<br>A = 1 + ∑ A(upstream cells)<br>Single-pass topological sort O(W H)"]
@@ -138,7 +138,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start([Start]) --> Input[/"Heightmap H(x,y)"/]
+    Start([Start]) --> Input[/"Input: Heightmap H(x,y)"/]
     Input --> Spawn["Spawn droplets (rain rate 500~2000/tick)<br>Seeded RNG<br>State: p(x,y), dir, w=1.0, s=0.0"]
     
     Spawn --> Alive{"Droplet alive?<br>w > 0.01 AND lifetime < max_lifetime<br>(=300)"}
