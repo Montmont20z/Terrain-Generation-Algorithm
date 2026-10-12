@@ -231,7 +231,42 @@ flowchart TD
 
 ## 🚀 Getting Started
 
-<!-- EDIT: add Unity version, clone instructions, how to open the scene, how to set a seed and press Generate. -->
+## Getting Started
+
+### Requirements
+
+- **Unity Editor:** `6000.3.10f1`
+
+### How to Run
+
+1. Clone or download this repository.
+2. Open the project using Unity Editor `6000.3.10f1`.
+3. Open the scene containing the terrain generation system.
+4. Press the **Play** button in the Unity Editor toolbar to start the simulation.
+5. Switch to the **Scene** view to observe and navigate around the generated terrain.
+
+### Scene Navigation
+
+**Note:** The Game view is currently not working, please use the **Scene** view to view and explore the terrain while the simulation is running.
+
+To navigate in the Scene view, use Unity's standard scene navigation controls. For example, hold the right mouse button and use `W`, `A`, `S`, and `D` to move around. Use `Q` and `E` to move vertically, and hold `Shift` to move faster.
+
+### Adjusting Parameters
+
+Terrain generation parameters can be modified through the **Inspector** window.
+
+1. Select the GameObject that contains the terrain generation component.
+2. Locate the relevant parameters in the Inspector.
+3. Adjust the values to change the terrain generation or erosion settings.
+4. Click **Rebuild Terrain** to regenerate the terrain using the updated parameters.
+
+### Available Actions
+
+The terrain generation component provides two main actions:
+
+- **Rebuild Terrain** — Regenerates the terrain using the current parameter settings.
+- **Run Erosion** — Applies the erosion algorithm to the generated terrain to modify its shape and produce more eroded terrain features.
+
 
 ---
 
@@ -259,6 +294,3 @@ Bachelor of Computer Science (Honours) in Interactive Software Technology, Tunku
 
 ---
 
-## 📄 License
-
-<!-- EDIT: e.g. MIT -->
