@@ -9,6 +9,8 @@
 
 <!-- EDIT: drop your best hero GIF / time-lapse here -->
 <!-- ![Terrain erosion time-lapse](docs/media/timelapse.gif) -->
+<img width="800" height="519" alt="1012-ezgif com-optimize" src="https://github.com/user-attachments/assets/ab0082aa-e2d2-4b09-93a4-0eb3a8b847bf" />
+
 
 ---
 
