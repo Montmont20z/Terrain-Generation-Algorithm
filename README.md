@@ -131,7 +131,7 @@ flowchart TD
     River --> Combine["River & Lake Map + Updated H"]
     Normal --> Combine
     
-    Combine --> Output[/"Heightmap H(x,y)"/]
+    Combine --> Output[/"Output: Heightmap H(x,y)"/]
     Output --> End([End])
 ```
 ### Fig. 2. River Generation Flowchart<br> <br>
